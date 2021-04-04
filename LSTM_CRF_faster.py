@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import json
-with open('/Users/air/train_data(1).json', 'r') as f:
+with open('./train_data(1).json', 'r') as f:
     a = json.load(f)    #此时a是一个字典对象
     
 ###############数据预处理############
