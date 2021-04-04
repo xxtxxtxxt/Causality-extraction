@@ -1,2 +1,2 @@
 # Causality-extraction
-PCNN——tensorflow
+LSTM+CRF
