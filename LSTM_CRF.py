@@ -19,10 +19,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
+
 class BiLSTM_CRF_MODIFY_PARALLEL(nn.Module):
     START_TAG = "<START>"
     STOP_TAG = "<STOP>"
     PAD_TAG = "<PAD>"
+
     @staticmethod
     def argmax(vec):
         # return the argmax as a python int
@@ -30,34 +32,34 @@ class BiLSTM_CRF_MODIFY_PARALLEL(nn.Module):
         return idx.item()
 
     @staticmethod
-    def prepare_sequence(seq, to_ix)->torch.Tensor:
-        idxs = [to_ix[w] for w in seq]
+    def prepare_sequence(seq, to_ix) -> torch.Tensor:
+        idxs = [0 if not (w in to_ix) else to_ix[w] for w in seq]
         return torch.tensor(idxs, dtype=torch.long).cuda()
 
     @staticmethod
-    def prepare_sequence_batch(data:List, word_to_ix, tag_to_ix,max_len)->Tuple[torch.Tensor,torch.Tensor]:
+    def prepare_sequence_batch(data: List, word_to_ix, tag_to_ix, max_len) -> Tuple[torch.Tensor, torch.Tensor]:
         # seqs = [i[0] for i in data]
         # tags = [i[1] for i in data]
-        
+
         seqs_pad = []
         tags_pad = []
-        temp=0
-        with tqdm.tqdm(total=len(data), ncols=80,desc="prepare_sequence_batch") as tqbar:
+        temp = 0
+        with tqdm.tqdm(total=len(data), ncols=80, desc="prepare_sequence_batch") as tqbar:
             for i in data:
-                seq,tag=i[0],i[1]
+                seq, tag = i[0], i[1]
                 seq_pad = seq + ['<PAD>'] * (max_len-len(seq))
                 tag_pad = tag + ['<PAD>'] * (max_len-len(tag))
                 seqs_pad.append(seq_pad)
                 tags_pad.append(tag_pad)
-                
-            
+
                 tqbar.update(1)
-        
+
         idxs_pad = torch.tensor([[word_to_ix[w] for w in seq]
                                 for seq in seqs_pad], dtype=torch.int32).long().cuda()
         tags_pad = torch.tensor([[tag_to_ix[t] for t in tag]
                                 for tag in tags_pad], dtype=torch.int32).long().cuda()
-        return idxs_pad,tags_pad
+        return idxs_pad, tags_pad
+
     def __init__(self, vocab_size, tag_to_ix, embedding_dim, hidden_dim):
         super(BiLSTM_CRF_MODIFY_PARALLEL, self).__init__()
         self.embedding_dim = embedding_dim
@@ -65,7 +67,7 @@ class BiLSTM_CRF_MODIFY_PARALLEL(nn.Module):
         self.vocab_size = vocab_size
         self.tag_to_ix = tag_to_ix
         self.tagset_size = len(tag_to_ix)
-        self.opetimizer=None
+        self.opetimizer = None
         self.word_embeds = nn.Embedding(vocab_size, embedding_dim).cuda()
         self.lstm = nn.LSTM(embedding_dim, hidden_dim // 2,
                             num_layers=1, bidirectional=True, batch_first=True).cuda()
@@ -85,8 +87,9 @@ class BiLSTM_CRF_MODIFY_PARALLEL(nn.Module):
         self.transitions.data[:, tag_to_ix[self.STOP_TAG]] = -10000
         self.hidden = self.init_hidden()
 
-    def set_optimizer(self,optimizer:optim.Optimizer):
-        self.opetimizer=optimizer
+    def set_optimizer(self, optimizer: optim.Optimizer):
+        self.opetimizer = optimizer
+
     def init_hidden(self):
         return (torch.randn(2, 1, self.hidden_dim // 2).cuda(),
                 torch.randn(2, 1, self.hidden_dim // 2).cuda())
@@ -121,7 +124,8 @@ class BiLSTM_CRF_MODIFY_PARALLEL(nn.Module):
                 alphas_t.append(self.log_sum_exp(next_tag_var).view(1))
             forward_var = torch.cat(alphas_t).view(1, -1).cuda()
         # print('time consuming of crf_partion_function1:%f' % (time.time() - begin))
-        terminal_var = forward_var + self.transitions[self.tag_to_ix[self.STOP_TAG]]
+        terminal_var = forward_var + \
+            self.transitions[self.tag_to_ix[self.STOP_TAG]]
         alpha = self.log_sum_exp(terminal_var)
         # print('time consuming of crf_partion_function2:%f' %(time.time()-begin))
         return alpha
@@ -169,7 +173,8 @@ class BiLSTM_CRF_MODIFY_PARALLEL(nn.Module):
             t_r1_k = torch.unsqueeze(
                 feats[:, feat_index, :], 1).transpose(1, 2).cuda()  # +1
             # t_r1_k = feats[:,feat_index,:].repeat(feats.shape[0],1,1).transpose(1, 2)
-            aa = gamar_r_l + t_r1_k + torch.unsqueeze(self.transitions, 0).cuda()
+            aa = gamar_r_l + t_r1_k + \
+                torch.unsqueeze(self.transitions, 0).cuda()
             # forward_var_list.append(log_add(aa))
             forward_var_list.append(torch.logsumexp(aa, dim=2))
         terminal_var = forward_var_list[-1] + \
@@ -209,7 +214,8 @@ class BiLSTM_CRF_MODIFY_PARALLEL(nn.Module):
         for i, feat in enumerate(feats):
             score = score + \
                 self.transitions[tags[i + 1], tags[i]] + feat[tags[i + 1]]
-        score = score + self.transitions[self.tag_to_ix[self.STOP_TAG], tags[-1]]
+        score = score + \
+            self.transitions[self.tag_to_ix[self.STOP_TAG], tags[-1]]
         return score
 
     def _score_sentence_parallel(self, feats, tags):
@@ -224,7 +230,8 @@ class BiLSTM_CRF_MODIFY_PARALLEL(nn.Module):
             score = score + \
                 self.transitions[tags[:, i + 1], tags[:, i]] + \
                 feat[range(feat.shape[0]), tags[:, i + 1]]
-        score = score + self.transitions[self.tag_to_ix[self.STOP_TAG], tags[:, -1]]
+        score = score + \
+            self.transitions[self.tag_to_ix[self.STOP_TAG], tags[:, -1]]
         return score
 
     def _viterbi_decode(self, feats):
@@ -258,7 +265,8 @@ class BiLSTM_CRF_MODIFY_PARALLEL(nn.Module):
             backpointers.append(bptrs_t)
 
         # Transition to self.STOP_TAG
-        terminal_var = forward_var + self.transitions[self.tag_to_ix[self.STOP_TAG]]
+        terminal_var = forward_var + \
+            self.transitions[self.tag_to_ix[self.STOP_TAG]]
         best_tag_id = self.argmax(terminal_var)
         path_score = terminal_var[0][best_tag_id]
 
@@ -334,44 +342,89 @@ class BiLSTM_CRF_MODIFY_PARALLEL(nn.Module):
         # Find the best path, given the features.
         score, tag_seq = self._viterbi_decode_new(lstm_feats)
         return score, tag_seq
-    def train_model(self,train_data:List[Dict],tag_to_idx:Dict[str,int],word_to_idx:Dict[str,int],max_len:Number,epoch:int,batch_size=5000)->None:
-        idxs_pad,tags_pad=self.prepare_sequence_batch(train_data,word_to_idx,tag_to_idx,max_len)
-        batch=0
-        with tqdm.tqdm(total=len(train_data)*epoch,ncols=80,desc="train") as tqbar:
+
+    def train_model(self, train_data: List[Dict], tag_to_idx: Dict[str, int], word_to_idx: Dict[str, int], max_len: Number, epoch: int, batch_size=5000) -> None:
+        idxs_pad, tags_pad = self.prepare_sequence_batch(
+            train_data, word_to_idx, tag_to_idx, max_len)
+        batch = 0
+        with tqdm.tqdm(total=len(train_data)*epoch, ncols=80, desc="train") as tqbar:
             for current_epoch in range(epoch):
-                batch=0
+                batch = 0
                 self.zero_grad()
-                while(batch+batch_size)<=len(train_data):
-                    setences=idxs_pad[batch:batch+batch_size].cuda()
-                    target=tags_pad[batch:batch+batch_size].cuda()
-                    loss=self.neg_log_likelihood_parallel(setences,target)
-                    batch+=batch_size
+                while(batch+batch_size) <= len(train_data):
+                    setences = idxs_pad[batch:batch+batch_size].cuda()
+                    target = tags_pad[batch:batch+batch_size].cuda()
+                    loss = self.neg_log_likelihood_parallel(setences, target)
+                    batch += batch_size
                     logger.info("\nepoch {0} : {1}/{2} ;loss is {3}".format(
-                        current_epoch,batch,len(train_data),loss.cpu()/batch_size
+                        current_epoch, batch, len(
+                            train_data), loss.cpu()/batch_size
                     ))
                     loss.backward()
                     self.opetimizer.step()
                     self.zero_grad()
                     tqbar.update(batch_size)
-                if batch==len(train_data):
+                if batch == len(train_data):
                     continue
-                setences=idxs_pad[batch:].cuda()
-                target=tags_pad[batch:].cuda()
-                loss=self.neg_log_likelihood_parallel(setences,target)
+                setences = idxs_pad[batch:].cuda()
+                target = tags_pad[batch:].cuda()
+                loss = self.neg_log_likelihood_parallel(setences, target)
                 logger.info("\nepoch {0} : {1}/{2} ;loss is {3}".format(
-                        current_epoch,len(train_data),len(train_data),loss.cpu()/(len(train_data)-batch)
+                    current_epoch, len(train_data), len(
+                        train_data), loss.cpu()/(len(train_data)-batch)
                 ))
                 loss.backward()
                 self.opetimizer.step()
                 self.zero_grad()
                 tqbar.update(len(train_data)-batch)
-        torch.save(self,"model")
-def make_training_data(a):
-    training_data1=[]
-    with tqdm.tqdm(total=len(a), ncols=80,desc="make training data") as tqbar:
+
+    def test_model(self, test_data: List[Dict], word_to_idx: Dict[str, int], tag_to_idx, verbose=False) -> None:
+        with torch.no_grad():
+            count = 0
+            correct = 0
+
+            with tqdm.tqdm(total=len(test_data), ncols=80, desc="test") as tqbar:
+                for i in range(len(test_data)):
+                    record_correct = 0
+                    record_count = 0
+                    temps = []
+                    tt = []
+                    try:
+                        record_correct = 0
+                        record_count = 0
+                        precheck_sent = self.prepare_sequence(
+                            test_data[i][0], word_to_idx)
+                        tt = [tag_to_idx[k]
+                              if k in tag_to_idx else k for k in test_data[i][1]]
+                        for j in range(len(test_data[i][1])):
+                            temp = self(precheck_sent)[1][j]
+                            if verbose:
+                                temps.append(temp)
+                            if(tt[j] >= 0 and tt[j] <= 7):
+                                count += 1
+                                record_count += 1
+                                if temp == tt[j]:
+                                    correct += 1
+                                    record_correct += 1
+                        tqbar.update(1)
+                        if verbose and (record_correct != record_count):
+                            logger.warn((test_data[i], temps, tt))
+                        else:
+                            logger.info(
+                                "test {0}/{1}  correct :{2}/{3}".format(i, len(test_data), correct, count))
+                    except Exception as ex:
+                        logger.warning((test_data[i][0], ex))
+                logger.info("accuracy:{0}/{1}={2}".format(
+                    correct, count, correct/count
+                ))
+
+
+def make_format_data(a):
+    format_data = []
+    with tqdm.tqdm(total=len(a), ncols=80, desc="make format data") as tqbar:
         for i in range(len(a)):
             wrongdata = 0
-            record=a[i]
+            record = a[i]
             try:
                 if '原因中的核心名词' in record['key_words'] and record['key_words']['原因中的核心名词']['start'] == -1:
                     wrongdata += 1
@@ -402,41 +455,79 @@ def make_training_data(a):
                             else:
                                 x[j] = 'result_state_I'
                     temp = (list(record['text']), x)
-                    training_data1.append(temp)
+                    format_data.append(temp)
             except Exception as ex:
-                logger.warning(ex,record)
+                logger.warning(ex, record)
                 pass
             tqbar.update(1)
-    return training_data1
-def preprocess(rawdata:List[Dict])->Tuple[List,Dict[str,int],int]:
-    
-    data=make_training_data(raw_data)
-    
-    word_to_idx:Dict[str,int]={}
-    word_to_idx['<PAD>']=0
-    max_len=0
-    with tqdm.tqdm(total=len(data),ncols=80,desc="word to index") as tqbar:
-            for sentence,tag in data:
-                max_len=max(len(sentence),max_len)
-                for word in sentence:
-                    if not(word in word_to_idx):
-                        word_to_idx[word]=len(word_to_idx)
-                tqbar.update(1)
-    return data,word_to_idx,max_len
-    
-if __name__=="__main__":
+    return format_data
+
+
+def preprocess(rawdata: List[Dict]) -> Tuple[List, Dict[str, int], int]:
+
+    data = make_format_data(rawdata)
+
+    word_to_idx: Dict[str, int] = {}
+    word_to_idx['<PAD>'] = 0
+    max_len = 0
+    with tqdm.tqdm(total=len(data), ncols=80, desc="word to index") as tqbar:
+        for sentence, tag in data:
+            max_len = max(len(sentence), max_len)
+            for word in sentence:
+                if not(word in word_to_idx):
+                    word_to_idx[word] = len(word_to_idx)
+            tqbar.update(1)
+    return data, word_to_idx, max_len
+
+
+def train():
     with open('./train_data.json', 'r') as f:
-        raw_data:List = json.load(f) 
-    random.shuffle(raw_data)
-    random.shuffle(raw_data)
+        raw_train_data: List = json.load(f)
+    random.shuffle(raw_train_data)
+    random.shuffle(raw_train_data)
 
     logger.info("finish loading training data")
     EMBEDDING_DIM = 50
     HIDDEN_DIM = 32
     tag_to_ix = {'reason_noun_B': 0, 'reason_noun_I': 1, 'reason_state_B': 2, 'reason_state_I': 3, 'result_noun_B': 4,
-                 'result_noun_I': 5, 'result_state_B': 6, 'result_state_I': 7, 'O': 8,BiLSTM_CRF_MODIFY_PARALLEL.START_TAG: 9, BiLSTM_CRF_MODIFY_PARALLEL.STOP_TAG: 10, BiLSTM_CRF_MODIFY_PARALLEL.PAD_TAG: 11}
-    
-    training_data, word_to_idx,max_len=preprocess(raw_data)
-    model=BiLSTM_CRF_MODIFY_PARALLEL(len(word_to_idx),tag_to_ix,EMBEDDING_DIM,HIDDEN_DIM)
-    model.set_optimizer(optim.Adam(model.parameters(),lr=0.01,weight_decay=1e-4))
-    model.train_model(training_data,tag_to_ix,word_to_idx,max_len,epoch=20,batch_size=5000)
+                 'result_noun_I': 5, 'result_state_B': 6, 'result_state_I': 7, 'O': 8, BiLSTM_CRF_MODIFY_PARALLEL.START_TAG: 9, BiLSTM_CRF_MODIFY_PARALLEL.STOP_TAG: 10, BiLSTM_CRF_MODIFY_PARALLEL.PAD_TAG: 11}
+
+    training_data, word_to_idx, max_len = preprocess(raw_train_data)
+    model = BiLSTM_CRF_MODIFY_PARALLEL(
+        len(word_to_idx), tag_to_ix, EMBEDDING_DIM, HIDDEN_DIM)
+    model.set_optimizer(optim.Adam(
+        model.parameters(), lr=0.01, weight_decay=1e-4))
+    model.train_model(training_data, tag_to_ix, word_to_idx,
+                      max_len, epoch=10, batch_size=5000)
+    torch.save(model, "model")
+    torch.save(word_to_idx, "word_to_idx")
+
+    raw_test_data = []
+    with open("./test_data.json", "r") as f:
+        raw_test_data = json.load(f)
+    test_data = make_format_data(raw_test_data)
+
+    model.test_model(test_data, word_to_idx, tag_to_ix)
+
+
+def test():
+
+    tag_to_ix = {'reason_noun_B': 0, 'reason_noun_I': 1, 'reason_state_B': 2, 'reason_state_I': 3, 'result_noun_B': 4,
+                 'result_noun_I': 5, 'result_state_B': 6, 'result_state_I': 7, 'O': 8, BiLSTM_CRF_MODIFY_PARALLEL.START_TAG: 9, BiLSTM_CRF_MODIFY_PARALLEL.STOP_TAG: 10, BiLSTM_CRF_MODIFY_PARALLEL.PAD_TAG: 11}
+
+    model: BiLSTM_CRF_MODIFY_PARALLEL = None
+    with open("model", "rb") as f:
+        model = torch.load(f)
+    word_to_idx = {}
+    with open("word_to_idx", "rb") as f:
+        word_to_idx = torch.load(f)
+    raw_test_data = []
+    with open("./test_data.json", "r") as f:
+        raw_test_data = json.load(f)
+    test_data = make_format_data(raw_test_data)
+    model.test_model(test_data, word_to_idx, tag_to_ix, verbose=True)
+
+
+if __name__ == "__main__":
+    train()
+    test()
